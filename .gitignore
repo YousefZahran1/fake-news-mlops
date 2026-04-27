@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.env
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+data/raw/
+data/processed/
+mlruns/
+*.pkl
+*.joblib
+*.db
+*.log
+.DS_Store
