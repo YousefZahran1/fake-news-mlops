@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: fakenews
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.13.0
+    command: ["mlflow", "server", "--host", "0.0.0.0", "--backend-store-uri", "sqlite:///mlflow.db"]
+    ports: ["5000:5000"]
+    volumes: [mlflow:/mlflow]
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    depends_on: [postgres, mlflow]
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/fakenews
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    ports: ["8000:8000"]
+volumes:
+  pgdata:
+  mlflow:
