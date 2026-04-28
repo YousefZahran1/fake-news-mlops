@@ -68,7 +68,23 @@ curl -X POST localhost:8000/predict -H "Content-Type: application/json" -d '{"te
 - [x] GitHub Actions CI: lint + tests
 - [x] Tests for serving contract + drift detector
 
+## v0.1 baseline (TF-IDF + LogReg on the 30-row seed)
+
+`python -m src.train.train data/seed_labeled.csv` runs end-to-end through the
+MLflow pipeline (TF-IDF -> LogisticRegression -> tracked run -> registered model
+artifact). Held-out F1 on the test split is **0.000** — the seed is too small for
+the model to learn anything beyond the majority class.
+
+This is deliberately honest: the value of this repo is the *engineering wrapper*
+(MLflow tracking + registry contract, FastAPI inference, Postgres logging,
+Evidently drift), not the model trained on 30 rows. Plug in LIAR or FakeNewsNet
+to evaluate the modeling layer; the wrapper does not change.
+
+The university transformer-based version (0.89 validation, separate dataset) is
+referenced in `docs/ROADMAP.md` as the v0.2 model swap.
+
 ## What's planned (see ROADMAP.md)
+- [ ] Real corpus (LIAR / FakeNewsNet) ingestion
 - [ ] Evidently drift report scheduled
 - [ ] Prefect retraining flow
 - [ ] Live demo on GCP Cloud Run
