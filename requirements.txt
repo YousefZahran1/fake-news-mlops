@@ -11,4 +11,4 @@ psycopg[binary]>=3.1
 evidently>=0.4
 python-dotenv>=1.0
 pytest>=8.1
-ruff>=0.4
+ruff==0.16.2

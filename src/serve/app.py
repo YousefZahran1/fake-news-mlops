@@ -5,12 +5,14 @@ text, logs every prediction to Postgres for drift monitoring downstream.
 """
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timezone
-from typing import List
 
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Fake News Detector", version="0.1.0")
 _model = None  # lazy-loaded on first request
@@ -30,7 +32,7 @@ class PredictResponse(BaseModel):
 @app.on_event("startup")
 def _warm() -> None:
     """Load model lazily on first /predict, but warm here in dev."""
-    return None
+    return
 
 
 def _load_model():
@@ -70,7 +72,8 @@ def _log_prediction(text: str, label: int, proba: float) -> None:
     if not url:
         return
     try:
-        from sqlalchemy import create_engine, text as sql_text  # type: ignore
+        from sqlalchemy import create_engine  # type: ignore
+        from sqlalchemy import text as sql_text
 
         engine = create_engine(url)
         with engine.begin() as conn:
@@ -86,8 +89,6 @@ def _log_prediction(text: str, label: int, proba: float) -> None:
                     "p": proba,
                 },
             )
-    except Exception:  # noqa: BLE001
+    except Exception:
         # Log to stdout but don't fail the request
-        import logging
-
-        logging.exception("prediction logging failed")
+        logger.exception("prediction logging failed")

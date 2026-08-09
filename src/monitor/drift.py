@@ -5,7 +5,7 @@ Uses Evidently for the rich report; this module is the lightweight contract.
 """
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer

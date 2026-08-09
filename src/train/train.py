@@ -13,7 +13,6 @@ import argparse
 import os
 from pathlib import Path
 
-import joblib
 import mlflow
 import mlflow.sklearn
 import pandas as pd

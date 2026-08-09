@@ -50,8 +50,11 @@ def main() -> None:
     out_path = out_dir / f"drift_{datetime.now(timezone.utc).strftime('%Y%m%d')}.html"
 
     try:
+        from evidently.metric_preset import (  # type: ignore
+            DataDriftPreset,
+            TextOverviewPreset,
+        )
         from evidently.report import Report  # type: ignore
-        from evidently.metric_preset import DataDriftPreset, TextOverviewPreset  # type: ignore
 
         report = Report(metrics=[DataDriftPreset(), TextOverviewPreset(column_name="text")])
         report.run(reference_data=reference, current_data=current)
