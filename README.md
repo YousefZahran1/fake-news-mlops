@@ -1,15 +1,22 @@
 # Fake News Detection — Productionized
 
-A transformer fake-news classifier wrapped in a real MLOps loop: training tracked in MLflow, model versioned in the registry, served behind a FastAPI endpoint, predictions logged to Postgres, drift monitored with Evidently, retraining triggered when drift exceeds threshold.
+An end-to-end MLOps pipeline wrapped around a fake-news text classifier: training and experiment tracking in MLflow, the model versioned in MLflow's registry, FastAPI model serving behind a `/predict` endpoint, every prediction logged to PostgreSQL, and drift monitored with Evidently AI. Built to demonstrate the lifecycle of an ML model — not just the modeling. The classifier itself is a continuation of a university transformer-based fake-news project (0.89 validation accuracy, separate dataset); the interesting part of this repo is what's around the model, not the model.
 
-> Built to demonstrate the lifecycle of an ML model — not just the modeling. The classifier itself is a continuation of my university transformer-based fake-news project (validation 0.89). The interesting part of this repo is what's around the model, not the model.
+## What it does
+
+- Trains a TF-IDF + Logistic Regression baseline classifier, with every run tracked in MLflow (metrics, params, classification report, model artifact) and optionally registered to the MLflow model registry.
+- Serves the latest "Production"-stage model from the registry behind a FastAPI `/predict` endpoint with a Pydantic request/response schema.
+- Logs every prediction (timestamp, input text, label, probability) to PostgreSQL via SQLAlchemy — the reference data drift monitoring reads from.
+- Computes drift two ways: an Evidently AI `DataDriftPreset` + `TextOverviewPreset` HTML report comparing the training reference against the last 7 days of logged Postgres predictions, with a lightweight TF-IDF mean-vector distance score as a fallback if Evidently isn't available.
+- Ships a local Docker Compose stack (Postgres + MLflow server) for one-command local infra, plus a Dockerfile for the API itself.
+- Has CI (GitHub Actions: lint with ruff, run pytest) and tests for both the serving schema and the drift detector.
 
 ## Architecture
 
 ```
                          ┌────────────────────┐
-   labeled corpus ─────▶ │ training pipeline  │
-                         │  (DVC + MLflow)    │
+   labeled corpus ─────▶ │  training script    │  src/train/train.py
+                         │  (MLflow tracking)  │
                          └─────────┬──────────┘
                                    │ register best model
                                    ▼
@@ -20,74 +27,53 @@ A transformer fake-news classifier wrapped in a real MLOps loop: training tracke
                                    │ load latest "Production"
                                    ▼
    user request ───▶ ┌──────────┐  │   ┌──────────────┐
-                     │ FastAPI  │ ─┴─▶ │  Postgres    │
+                     │ FastAPI  │ ─┴─▶ │  PostgreSQL  │
                      │  /predict│      │  predictions │
                      └──────────┘      └──────┬───────┘
                                               │
                                               ▼
                                       ┌──────────────┐
-                                      │ Evidently    │
-                                      │ drift report │
-                                      └──────┬───────┘
-                                             │ if drift > τ
-                                             ▼
-                                      ┌──────────────┐
-                                      │ retrain      │
-                                      │ (Prefect job)│
+                                      │ Evidently AI │  DataDriftPreset +
+                                      │ drift report │  TextOverviewPreset
                                       └──────────────┘
 ```
 
-## Tech stack and why
+**Stack:** scikit-learn (TF-IDF + Logistic Regression baseline, swappable for a HuggingFace transformer via the same `build_pipeline()` interface), MLflow for experiment tracking and the model registry, FastAPI + Pydantic for serving, PostgreSQL + SQLAlchemy for prediction logging, Evidently AI for drift reports.
 
-| Layer | Pick | Why |
-|---|---|---|
-| Training | scikit-learn + transformers | Same stack as the original project; nothing exotic |
-| Tracking | MLflow | Industry-standard; registry + tracking in one |
-| Data versioning | DVC | Lightweight, git-friendly; alternative to LakeFS |
-| Serving | FastAPI | Async, types, auto OpenAPI |
-| Logging | Postgres + SQLAlchemy | Free-tier friendly; queryable |
-| Drift | Evidently AI | Open source, decent reports out of the box |
-| Scheduling | Prefect (or GH Actions cron) | Prefect for real prod, GH Actions for the demo version |
+**Planned, not yet in this repo** (see `docs/ROADMAP.md`): DVC-based data versioning, a scheduled Evidently drift job, and a Prefect flow to trigger retraining automatically when drift crosses a threshold — today the drift report and retraining are run manually.
 
-## Quick start
+## How to run
 
 ```bash
+# 1. Install
 pip install -r requirements.txt
+
+# 2. Start local infra (Postgres + MLflow server)
 docker compose -f deploy/docker-compose.yml up -d postgres mlflow
-python -m src.train.train data/labeled.csv
+
+# 3. Train and register a model
+python -m src.train.train data/seed_labeled.csv --register
+
+# 4. Serve
 PYTHONPATH=. uvicorn src.serve.app:app --reload
-curl -X POST localhost:8000/predict -H "Content-Type: application/json" -d '{"text":"Aliens land in Riyadh, govt confirms"}'
+
+# 5. Predict
+curl -X POST localhost:8000/predict -H "Content-Type: application/json" \
+  -d '{"text":"Aliens land in Riyadh, govt confirms"}'
 ```
 
-## What's done in v0.1 (this commit set)
-- [x] training script with MLflow tracking
-- [x] model registry contract (load_latest_production)
-- [x] FastAPI inference endpoint with Pydantic schema
-- [x] Postgres logging of every prediction
-- [x] Dockerfile + docker-compose for local stack
-- [x] GitHub Actions CI: lint + tests
-- [x] Tests for serving contract + drift detector
+Equivalent `make` targets: `make install`, `make compose-up`, `make train`, `make serve`, `make test`, `make drift-report`.
 
-## v0.1 baseline (TF-IDF + LogReg on the 30-row seed)
+Set `DATABASE_URL` (see `.env.example`) for prediction logging and drift reports to read from Postgres; without it, `/predict` still works but skips logging, and `run_evidently.py` falls back to a synthetic sample of the reference data.
 
-`python -m src.train.train data/seed_labeled.csv` runs end-to-end through the
-MLflow pipeline (TF-IDF -> LogisticRegression -> tracked run -> registered model
-artifact). Held-out F1 on the test split is **0.000** — the seed is too small for
-the model to learn anything beyond the majority class.
+## Results
 
-This is deliberately honest: the value of this repo is the *engineering wrapper*
-(MLflow tracking + registry contract, FastAPI inference, Postgres logging,
-Evidently drift), not the model trained on 30 rows. Plug in LIAR or FakeNewsNet
-to evaluate the modeling layer; the wrapper does not change.
+```bash
+python -m src.train.train data/seed_labeled.csv --register
+```
 
-The university transformer-based version (0.89 validation, separate dataset) is
-referenced in `docs/ROADMAP.md` as the v0.2 model swap.
-
-## What's planned (see ROADMAP.md)
-- [ ] Real corpus (LIAR / FakeNewsNet) ingestion
-- [ ] Evidently drift report scheduled
-- [ ] Prefect retraining flow
-- [ ] Live demo on GCP Cloud Run
+Held-out F1 on `data/seed_labeled.csv` (30 rows) is **0.000** — the seed set is too small for the TF-IDF + LogReg baseline to learn anything beyond the majority class. This is expected and documented, not a hidden failure: the point of this baseline is to prove the MLflow → FastAPI → Postgres → Evidently wiring works end-to-end, not to hit a high score on a placeholder dataset. Swap in a real corpus (LIAR / FakeNewsNet, per `docs/ROADMAP.md`) to evaluate the modeling layer — the pipeline harness doesn't change.
 
 ## License
+
 MIT
